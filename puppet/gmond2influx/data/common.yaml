@@ -1,1 +1,16 @@
 ---
+gmond2influx::binary_ensure: 'file'
+gmond2influx::binary_path: '/usr/local/bin/gmond2influx.py'
+gmond2influx::binary_owner: 'root'
+gmond2influx::binary_group: 'root'
+gmond2influx::binary_mode: '0755'
+gmond2influx::binary_replace: true
+gmond2influx::binary_source: 'puppet:///modules/gmond2influx/usr/local/bin/gmond2influx.py'
+
+gmond2influx::service_ensure: 'running'
+gmond2influx::service_name: 'gmond2influx'
+gmond2influx::service_enable: true
+gmond2influx::service_hasrestart: ~
+gmond2influx::service_file_path: '/etc/systemd/system/gmond2influx.service'
+gmond2influx::service_file_mode: ~
+gmond2influx::service_file_source: 'puppet:///modules/gmond2influx/etc/systemd/system/gmond2influx.service'

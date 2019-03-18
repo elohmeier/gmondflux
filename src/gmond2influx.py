@@ -1,18 +1,220 @@
 #!/usr/bin/python2
+from __future__ import unicode_literals
 from __future__ import with_statement
 
 import sys
 from datetime import datetime
 
 import argparse
+import base64
 import logging
+import re
 import socket
 import threading
 
-import libgmond
-import libinflux
+try:
+    from urllib2 import urlopen, Request, HTTPError, URLError
+except ImportError:
+    from urllib.request import urlopen, Request
+    from urllib.error import HTTPError, URLError
+from xdrlib import Unpacker
 
 log = logging.getLogger(__name__)
+
+
+_slope_int2str = {0: "zero", 1: "positive", 2: "negative", 3: "both", 4: "unspecified"}
+
+
+def gmetric_read(msg):
+    unpacker = Unpacker(msg)
+    values = dict()
+    packet_type = unpacker.unpack_int()
+    values["packet_type"] = packet_type
+
+    if packet_type in (128, 129, 131, 132, 133, 134, 135):
+        values["hostname"] = unpacker.unpack_string()
+        values["metric_name"] = unpacker.unpack_string()
+        values["spoof"] = unpacker.unpack_uint()
+    else:
+        raise NotImplementedError("packet_type %s unsupported" % packet_type)
+
+    if packet_type == 128:
+        log.debug("### METADATA PACKET (type %s) ###", packet_type)
+        values["type_representation"] = unpacker.unpack_string()
+        values["metric_name"] = unpacker.unpack_string()
+        values["units"] = unpacker.unpack_string()
+        values["slope"] = _slope_int2str[unpacker.unpack_int()]
+        values["tmax"] = unpacker.unpack_uint()
+        values["dmax"] = unpacker.unpack_uint()
+        values["extra_data"] = {}
+        extra_data_qualifier = unpacker.unpack_uint()
+
+        for i in range(0, extra_data_qualifier):
+            name = unpacker.unpack_string()
+            value = unpacker.unpack_string()
+            values["extra_data"][name] = value
+
+    if packet_type != 128:
+        log.debug("### VALUE PACKET (type %s) ###", packet_type)
+        values["printf"] = unpacker.unpack_string()
+
+    if packet_type == 129:
+        values["value"] = unpacker.unpack_uint()
+    if packet_type == 131:
+        values["value"] = unpacker.unpack_int()
+    if packet_type == 132:
+        values["value"] = unpacker.unpack_int()
+    if packet_type == 133:
+        values["value"] = unpacker.unpack_string()
+    if packet_type == 134:
+        values["value"] = unpacker.unpack_float()
+    if packet_type == 135:
+        values["value"] = unpacker.unpack_double()
+
+    log.debug(values)
+    try:
+        unpacker.done()
+    except Exception as e:
+        log.error(e)
+        log.error("position: %s / %s", unpacker.get_position(), len(msg))
+        log.error(unpacker.get_buffer())
+    return packet_type, values
+
+
+class GmondGroupie(object):
+    def __init__(self):
+        self.metric_groups = {}
+
+    def learn_meta(self, values):
+        if not is_meta(values["packet_type"]):  # ignore non-metadata packets
+            return
+
+        self.metric_groups[values["metric_name"]] = values["extra_data"]["GROUP"]
+
+    def get_group(self, metric_name):
+        if metric_name not in self.metric_groups:
+            log.debug("metric %s is not known from metadata (yet)", metric_name)
+            return None
+        return self.metric_groups[metric_name]
+
+
+def is_meta(packet_type):
+    return packet_type == 128
+
+
+EPOCH = datetime.utcfromtimestamp(0)
+
+
+def _is_float(value):
+    try:
+        float(value)
+    except (TypeError, ValueError):
+        return False
+
+    return True
+
+
+def quote_ident(value):
+    """Indent the quotes."""
+    return '"{}"'.format(
+        value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+    )
+
+
+def _escape_value(value):
+    if (sys.version[0] == 2 and isinstance(value, str)) or (
+        sys.version[0] == 3 and isinstance(value, bytes)
+    ):
+        value = value.decode("utf-8")
+    elif isinstance(value, int) and not isinstance(value, bool):
+        return str(value) + "i"
+    elif _is_float(value):
+        return repr(float(value))
+
+    return quote_ident(value)
+
+
+def build_influxql(measurement_name, tag_set, field_set, timestamp=None):
+    tag_line = ",".join(["%s=%s" % (safe_fieldname(k), v) for k, v in tag_set.items()])
+    field_line = ",".join(
+        ["%s=%s" % (safe_fieldname(k), _escape_value(v)) for k, v in field_set.items()]
+    )
+    if timestamp:
+        timestamp_nanoseconds = int((timestamp - EPOCH).total_seconds() * 1e9)
+        return "%s,%s %s %s\n" % (
+            measurement_name,
+            tag_line,
+            field_line,
+            timestamp_nanoseconds,
+        )
+    return "%s,%s %s\n" % (measurement_name, tag_line, field_line)
+
+
+def transmit(url, username, password, data):
+    log.debug("transferring data to %s", url)
+    try:
+        req = Request(url=url, data=data.encode("utf-8"))
+        if username and password:
+            auth = base64.b64encode(("%s:%s" % (username, password)).encode("utf-8"))
+            req.add_header("Authorization", b"Basic " + auth)
+        res = urlopen(req)
+    except HTTPError as e:
+        log.error("data transmission to InfluxDB failed: %s", e)
+        log.debug(e.read())
+        log.debug(data)
+        return False
+    except URLError as e:
+        log.error("data transmission to InfluxDB failed: %s", e)
+        log.debug(data)
+        return False
+    if res.code == 204:
+        log.debug("transmission succeeded, HTTP-Status %s", res.code)
+        return True
+    else:
+        log.error("transmission failed, HTTP-Status %s", res.code)
+        return False
+
+
+def split_by_prefix(
+    tag_set,
+    field_set,
+    tag_name,
+    prefix_pattern=r"^([A-Za-z0-9]+)[-_](.*)$",
+    new_prefix="",
+):
+
+    prefixed_field_set = {}
+    unprefixed_field_set = {}
+
+    for field_key in field_set:
+        # log.debug("field_key: %s", field_key)
+        m = re.match(prefix_pattern, field_key)
+        if m:
+            prefix = m.group(1)
+            # log.debug("prefix %s detected", prefix)
+            if prefix not in prefixed_field_set:
+                prefixed_field_set[prefix] = {}
+            prefixed_field_set[prefix][new_prefix + m.group(2)] = field_set[field_key]
+        else:
+            # log.debug("no prefix detected")
+            unprefixed_field_set[field_key] = field_set[field_key]
+
+    if any(unprefixed_field_set):
+        # log.debug("yielding unprefixed field_set %s, tags: %s", unprefixed_field_set, tag_set)
+        yield tag_set, unprefixed_field_set
+
+    for prefix, field_set in prefixed_field_set.items():
+        tag_set = tag_set.copy()
+        tag_set[tag_name] = prefix
+        # log.debug("yielding prefixed field_set %s, tags: %s", field_set, tag_set)
+        yield tag_set, field_set
+
+
+def safe_fieldname(fieldname):
+    fieldname = fieldname.strip().replace(" ", "\\ ").replace(",", "\\,")
+    if fieldname == "time":
+        return "gtime"
+    return fieldname
 
 
 class ItemStore(object):
@@ -25,7 +227,7 @@ class ItemStore(object):
     def add(self, item):
         with self.wakeup:
             if 0 < self.max_length < len(self.items):
-                log.warning("ItemStore is full")
+                log.debug("ItemStore is full")
                 return
             self.items.append(item)
             self.wakeup.notify()  # wake 1 thread
@@ -48,7 +250,7 @@ class ProcessInfluxQueueJob(threading.Thread):
         self.password = password
         self.username = username
         self.influx_url = influx_url
-        self.groupie = libgmond.GmondGroupie()
+        self.groupie = GmondGroupie()
 
     def run(self):
         while not self.store.shutdown_flag.is_set():
@@ -61,12 +263,12 @@ class ProcessInfluxQueueJob(threading.Thread):
 
             for timestamp, data in items:
                 try:
-                    packet_type, values = libgmond.gmetric_read(data)
+                    packet_type, values = gmetric_read(data)
                 except Exception as e:
                     log.error("parsing packet failed: %s", e)
                     continue
 
-                if libgmond.is_meta(packet_type):
+                if is_meta(packet_type):
                     self.groupie.learn_meta(values)
                     continue
 
@@ -85,17 +287,17 @@ class ProcessInfluxQueueJob(threading.Thread):
                 }
 
                 if group in split_groups:
-                    for tag_set, field_set in libinflux.split_by_prefix(
+                    for tag_set, field_set in split_by_prefix(
                         tag_set, field_set, split_groups[group]
                     ):
-                        iql += libinflux.build_influxql(
+                        iql += build_influxql(
                             measurement_name=group,
                             tag_set=tag_set,
                             field_set=field_set,
                             # timestamp=timestamp,
                         )
                 else:
-                    iql += libinflux.build_influxql(
+                    iql += build_influxql(
                         measurement_name=group,
                         tag_set=tag_set,
                         field_set=field_set,
@@ -106,9 +308,7 @@ class ProcessInfluxQueueJob(threading.Thread):
                 if self.diag_only:
                     sys.stdout.write(iql)
                 else:
-                    libinflux.transmit(
-                        self.influx_url, self.username, self.password, iql
-                    )
+                    transmit(self.influx_url, self.username, self.password, iql)
 
 
 def listen_udp(listen_address, listen_port, store):
@@ -172,7 +372,12 @@ if __name__ == "__main__":
 
     try:
         listen_udp(args.listen_address, args.listen_port, s)
+    except socket.error as e:
+        log.error("error initializing UDP-Listener: %s", e)
+        exit(1)
     except KeyboardInterrupt:
+        log.info("shutting down")
+    finally:
         log.debug("shutting down ProcessInfluxQueueJob thread")
         s.shutdown_flag.set()
         with s.wakeup:

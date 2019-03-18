@@ -1,0 +1,10 @@
+FROM debian:stretch
+ARG DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y wget
+RUN wget https://apt.puppet.com/pool/stretch/puppet/p/pdk/pdk_1.9.1.0-1stretch_amd64.deb
+RUN dpkg -i pdk_*.deb
+
+WORKDIR /work
+ADD bashrc /root/.bashrc
+
