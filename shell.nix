@@ -29,7 +29,7 @@ in
       alias ga.="git add ."
       alias gco="git checkout"
       alias gp="git pull"
-      alias gpp"git push"
+      alias gpp="git push"
 
       echo "gmondflux" | ${pkgs.figlet}/bin/figlet | ${pkgs.lolcat}/bin/lolcat
     '';
