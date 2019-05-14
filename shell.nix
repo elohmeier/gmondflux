@@ -19,6 +19,18 @@ in
         black --check .
       )
 
+      alias cd..="cd .."
+      alias l="ls -laF"
+      alias ll="ls -l"
+      alias la="ls -la"
+      alias gs="git status"
+      alias gc="git commit"
+      alias ga="git add"
+      alias ga.="git add ."
+      alias gco="git checkout"
+      alias gp="git pull"
+      alias gpp"git push"
+
       echo "gmondflux" | ${pkgs.figlet}/bin/figlet | ${pkgs.lolcat}/bin/lolcat
     '';
   }
