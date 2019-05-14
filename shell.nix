@@ -9,6 +9,9 @@ in
       pkgs.influxdb
       ganglia
       venv
+      pkgs.vim
+      pkgs.git
+      pkgs.tmux
     ];
 
     # Keep project-specific shell commands local
