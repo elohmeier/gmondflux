@@ -1,5 +1,3 @@
-from gevent import sleep
-
 from gmondflux.udp_server import GmondReceiver
 
 if __name__ == "__main__":
