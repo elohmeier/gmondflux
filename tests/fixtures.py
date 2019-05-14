@@ -1,11 +1,8 @@
 import time
 
 import pytest
-import requests
 import socket
 import subprocess
-
-from gmond_client import read_cluster_name
 
 
 def wait_for_port(port, host="localhost", timeout=5.0):
@@ -32,29 +29,18 @@ def wait_for_port(port, host="localhost", timeout=5.0):
 
 
 @pytest.fixture(scope="module")
-def influxdb():
+def influxdb_port():
     p = subprocess.Popen(["influxd", "run", "-config", "influxd.conf"])
     port = 18086
     wait_for_port(port)  # wait for InfluxDB to initialize
-    yield ("localhost", port)
+    yield port
     p.terminate()
 
 
 @pytest.fixture(scope="module")
-def gmond():
+def gmond_port():
     p = subprocess.Popen(["gmond", "-c", "gmond.conf"])
     xml_port = 8649
     wait_for_port(xml_port)  # wait for gmond XML port to initialize
     yield xml_port
     p.terminate()
-
-
-def test_connection_to_influxdb(influxdb):
-    print(influxdb)
-    res = requests.get(f"http://{influxdb[0]}:{influxdb[1]}", timeout=2)
-    assert res.status_code == 404
-
-
-def test_gmond_read_xml(gmond):
-    cn = read_cluster_name("localhost", gmond)
-    assert cn == "pytestcluster"

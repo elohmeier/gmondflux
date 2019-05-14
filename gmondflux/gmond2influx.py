@@ -12,6 +12,8 @@ import re
 import socket
 import threading
 
+from gmondflux.gmetric_parser import gmetric_read
+
 try:
     from urllib2 import urlopen, Request, HTTPError, URLError
 except ImportError:
