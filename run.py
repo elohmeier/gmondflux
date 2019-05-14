@@ -1,7 +1,9 @@
+from gevent import sleep
+
 from gmondflux.udp_server import GmondReceiver
 
 if __name__ == "__main__":
     print("starting up...")
 
-    GmondReceiver(":8649").serve_forever()
-
+    r = GmondReceiver(":8649")
+    r.serve_forever()

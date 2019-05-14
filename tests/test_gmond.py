@@ -1,7 +1,7 @@
 from gmondflux.gmond_client import read_cluster_name
 
 # noinspection PyUnresolvedReferences
-from tests.fixtures import gmond_port
+from .fixtures import gmond_port
 
 
 def test_gmond_read_xml(gmond_port):

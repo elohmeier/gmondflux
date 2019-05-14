@@ -1,7 +1,7 @@
 import requests
 
 # noinspection PyUnresolvedReferences
-from tests.fixtures import influxdb_port
+from .fixtures import influxdb_port
 
 
 def test_connection_to_influxdb(influxdb_port):

@@ -2,8 +2,8 @@ venv: env.nix
 	nix-build env.nix -o venv
 
 black:
-	nix-shell -p python3Packages.black --run "black src"
-	nix-shell -p python3Packages.black --run "black tests"
+	black gmondflux
+	black tests
 
 flake8:
 	nix-shell -p python2Packages.flake8 --run "flake8 --ignore E501 src"
