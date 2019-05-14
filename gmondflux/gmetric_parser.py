@@ -10,16 +10,16 @@ def gmetric_read(msg):
     values["packet_type"] = packet_type
 
     if packet_type in (128, 129, 131, 132, 133, 134, 135):
-        values["hostname"] = unpacker.unpack_string()
-        values["metric_name"] = unpacker.unpack_string()
+        values["hostname"] = unpacker.unpack_string().decode()
+        values["metric_name"] = unpacker.unpack_string().decode()
         values["spoof"] = unpacker.unpack_uint()
     else:
         raise NotImplementedError("packet_type %s unsupported" % packet_type)
 
     if packet_type == 128:
-        values["type_representation"] = unpacker.unpack_string()
-        values["metric_name"] = unpacker.unpack_string()
-        values["units"] = unpacker.unpack_string()
+        values["type_representation"] = unpacker.unpack_string().decode()
+        values["metric_name"] = unpacker.unpack_string().decode()
+        values["units"] = unpacker.unpack_string().decode()
         values["slope"] = _slope_int2str[unpacker.unpack_int()]
         values["tmax"] = unpacker.unpack_uint()
         values["dmax"] = unpacker.unpack_uint()
@@ -27,12 +27,12 @@ def gmetric_read(msg):
         extra_data_qualifier = unpacker.unpack_uint()
 
         for i in range(0, extra_data_qualifier):
-            name = unpacker.unpack_string()
-            value = unpacker.unpack_string()
+            name = unpacker.unpack_string().decode()
+            value = unpacker.unpack_string().decode()
             values["extra_data"][name] = value
 
     if packet_type != 128:
-        values["printf"] = unpacker.unpack_string()
+        values["printf"] = unpacker.unpack_string().decode()
 
     if packet_type == 129:
         values["value"] = unpacker.unpack_uint()

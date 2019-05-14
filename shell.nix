@@ -15,7 +15,7 @@ in
     ];
 
     # Keep project-specific shell commands local
-    HISTFILE = "${toString ./.}.bash_history";
+    HISTFILE = "${toString ./.}/.bash_history";
 
     shellHook = ''
       function ci_check() (
