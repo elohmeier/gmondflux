@@ -12,7 +12,7 @@ import re
 import socket
 import threading
 
-from gmondflux.gmetric_parser import gmetric_read
+from gmondflux.gmetric_parser import gmetric_parse
 
 try:
     from urllib2 import urlopen, Request, HTTPError, URLError
@@ -205,7 +205,7 @@ class ProcessInfluxQueueJob(threading.Thread):
 
             for timestamp, data in items:
                 try:
-                    packet_type, values = gmetric_read(data)
+                    packet_type, values = gmetric_parse(data)
                 except Exception as e:
                     log.error("parsing packet failed: %s", e)
                     continue

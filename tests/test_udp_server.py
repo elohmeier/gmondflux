@@ -1,12 +1,11 @@
 from gevent import sleep
-from gevent.queue import Queue
 from subprocess import Popen
 
-from gmondflux.udp_server import GmondReceiver
+from gmondflux.udp_server import GmondReceiver, PacketQueue
 
 
 def test_receive_gmetric_message():
-    q = Queue()
+    q = PacketQueue()
     r = GmondReceiver(":8649", queue=q)
     r.start()
     Popen(
@@ -26,5 +25,5 @@ def test_receive_gmetric_message():
     sleep(0.1)  # wait a bit for the msg transfer
     r.stop()
     assert len(q) == 2
-    assert q.get()[1]["packet_type"] == 128  # metadata
-    assert q.get()[1]["packet_type"] == 133  # float
+    assert q.get().packet_type == 128  # metadata
+    assert q.get().packet_type == 133  # float

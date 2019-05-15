@@ -29,7 +29,7 @@ class MessageProcessor(Greenlet):
 
     def _run(self):
         while True:
-            address, msg = self._q.get()
+            packet = self._q.get()
             log.debug("message from %s: %s", address, msg)
 
             if msg["packet_type"] == 128:  # metadata packet
@@ -64,8 +64,8 @@ class MessageProcessor(Greenlet):
                 }
             ]
             try:
-                self._influx_client.create_database("popo")
-                self._influx_client.write_points(json_body, database="popo")
+                # self._influx_client.create_database("popo")
+                self._influx_client.write_points(json_body, database="gmond")
             except Exception as e:
                 log.warning("write to InfluxDB failed: %s", e)
 
