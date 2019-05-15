@@ -1,5 +1,6 @@
 import argparse
 import gevent.monkey
+import urllib3
 from logging import handlers
 from pathlib import Path
 
@@ -115,6 +116,12 @@ if __name__ == "__main__":
 
     q = PacketQueue()
     r = GmondReceiver(f"{args.listen_address}:{args.listen_port}", queue=q)
+
+    if args.influx_ssl and not args.influx_ssl_verify:
+        log.warning(
+            "Please use --influx-ssl-verify if possible. You are prone to MITM attacks if you don't."
+        )
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
     c = InfluxDBClient(
         host=args.influx_host,
