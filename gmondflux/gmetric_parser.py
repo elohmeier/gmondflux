@@ -31,6 +31,9 @@ class GMetricPacket:
     def set_timestamp(self):
         self.timestamp = time.time()
 
+    def is_metadata(self):
+        return self.packet_type == 128
+
 
 def gmetric_parse(msg) -> GMetricPacket:
     unpacker = Unpacker(msg)

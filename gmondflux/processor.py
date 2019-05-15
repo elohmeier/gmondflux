@@ -1,16 +1,24 @@
 import logging
 from gevent import Greenlet
-from gevent.queue import Queue
 from influxdb import InfluxDBClient
 
 from gmondflux import gmond_client
+from gmondflux.gmetric_parser import GMetricPacket
+from gmondflux.udp_server import PacketQueue
 
 log = logging.getLogger(__name__)
 
 
 class MessageProcessor(Greenlet):
-    def __init__(self, q: Queue, influx_client: InfluxDBClient, gmond_xml_port=8649):
+    def __init__(
+        self,
+        q: PacketQueue,
+        influx_client: InfluxDBClient,
+        gmond_xml_port: int,
+        diag: bool,
+    ):
         super().__init__()
+        self.diag = diag
         self._influx_client = influx_client
         self._gmond_xml_port = gmond_xml_port
         self._q = q
@@ -30,10 +38,15 @@ class MessageProcessor(Greenlet):
     def _run(self):
         while True:
             packet = self._q.get()
-            log.debug("message from %s: %s", address, msg)
+            log.debug(
+                "processing metric %s (%s), received from %s",
+                packet.metric_name,
+                packet.packet_type,
+                packet.sender_host,
+            )
 
-            if msg["packet_type"] == 128:  # metadata packet
-                self._learn_group(msg)
+            if packet.is_metadata():
+                self._learn_group(packet)
                 continue
 
             cluster_name = "none"
@@ -64,19 +77,21 @@ class MessageProcessor(Greenlet):
                 }
             ]
             try:
-                # self._influx_client.create_database("popo")
-                self._influx_client.write_points(json_body, database="gmond")
+                if self.diag:
+                    print(json_body)
+                else:
+                    self._influx_client.write_points(json_body)
             except Exception as e:
                 log.warning("write to InfluxDB failed: %s", e)
 
-    def _learn_group(self, msg):
-        host = msg["hostname"]
-        metric = msg["metric_name"]
-        group = msg["extra_data"]["GROUP"]
+    def _learn_group(self, msg: GMetricPacket):
+        if msg.hostname not in self._host_metric_groups:
+            self._host_metric_groups[msg.hostname] = {}
 
-        if host not in self._host_metric_groups:
-            self._host_metric_groups[host] = {}
+        self._host_metric_groups[msg.hostname][msg.metric_name] = msg.extra_data[
+            "GROUP"
+        ]
 
-        self._host_metric_groups[host][metric] = group
-
-        log.debug("learned %s.%s.%s", host, group, metric)
+        log.debug(
+            "learned %s.%s.%s", msg.hostname, msg.extra_data["GROUP"], msg.metric_name
+        )

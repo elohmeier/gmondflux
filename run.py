@@ -32,6 +32,13 @@ if __name__ == "__main__":
         help="the port to listen on for gmond traffic, default is 8679",
     )
     parser.add_argument(
+        "-gx",
+        "--gmond-xml-port",
+        type=int,
+        default=8649,
+        help="tcp accept port to fetch XML metadata from gmond sender, default is 8649",
+    )
+    parser.add_argument(
         "-ia",
         "--influx-host",
         default="localhost",
@@ -80,7 +87,8 @@ if __name__ == "__main__":
         % (
             default_log_level,
             ", ".join(
-                [
+                str(i)
+                for i in [
                     logging.DEBUG,
                     logging.INFO,
                     logging.WARNING,
@@ -124,11 +132,15 @@ if __name__ == "__main__":
         ssl=args.influx_ssl,
     )
 
-    p = MessageProcessor(q, c)
+    p = MessageProcessor(q, c, args.gmond_xml_port, args.diag)
     p.start()
 
     try:
-        log.info("listening on %s:%s", args.listen_address, args.listen_port)
+        log.info(
+            "listening for gmond udp traffic on %s:%s...",
+            args.listen_address,
+            args.listen_port,
+        )
         r.serve_forever()
     except KeyboardInterrupt:
-        print("shutting down...")
+        log.info("shutting down...")
