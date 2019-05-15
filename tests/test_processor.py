@@ -12,3 +12,8 @@ def test_ent_split():
     assert len(extra_tags) == 1
     assert extra_tags["interface"] == "ent0"
     assert field_name == "bytes_received"
+
+
+def test_conversion():
+    val = b"95"
+    assert float(val) == 95

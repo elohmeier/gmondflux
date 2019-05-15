@@ -9,6 +9,8 @@ from gmondflux.udp_server import PacketQueue
 
 log = logging.getLogger(__name__)
 
+FORBIDDEN_FIELD_NAMES = ["time"]
+
 re_split = re.compile(r"^((ent|hdisk|fcs)\d+)_(.*)$")
 tag_name_map = {"ent": "interface", "hdisk": "disk", "fcs": "device"}
 
@@ -29,6 +31,7 @@ class MessageProcessor(Greenlet):
         diag: bool,
     ):
         super().__init__()
+        self._group_map = {}
         self.diag = diag
         self._influx_client = influx_client
         self._gmond_xml_port = gmond_xml_port
@@ -44,7 +47,7 @@ class MessageProcessor(Greenlet):
                     sender_host, self._gmond_xml_port
                 )
             except socket.timeout:
-                log.warning("cluster name lookup timed out")
+                log.warning("cluster name lookup timed out for %s", sender_host)
                 self._cluster_map[sender_host] = None  # ignore in the future
 
         return self._cluster_map[sender_host]
@@ -60,11 +63,22 @@ class MessageProcessor(Greenlet):
             )
 
             if packet.is_metadata():  # ignore metadata packets
+                if "GROUP" in packet.extra_data:
+                    self._group_map[
+                        (packet.hostname, packet.metric_name)
+                    ] = packet.extra_data["GROUP"]
                 log.debug("skipping meta packet")
                 continue
 
             tags, field_name = split_metric(packet.metric_name)
             tags["host"] = packet.hostname
+
+            measurement = "gmond"
+            if (packet.hostname, packet.metric_name) in self._group_map:
+                measurement = self._group_map[(packet.hostname, packet.metric_name)]
+
+            if field_name in FORBIDDEN_FIELD_NAMES:
+                continue  # skip forbidden fields
 
             try:
                 log.debug("looking up cluster name...")
@@ -75,12 +89,17 @@ class MessageProcessor(Greenlet):
             except Exception as e:
                 log.warning("failed to lookup cluster name: %s", e)
 
+            try:
+                value = float(packet.value)
+            except ValueError:
+                value = packet.value
+
             json_body = [
                 {
-                    "measurement": "gmond",
+                    "measurement": measurement,
                     "tags": tags,
                     # "time": "2009-11-10T23:00:00Z",
-                    "fields": {field_name: packet.value},
+                    "fields": {field_name: value},
                 }
             ]
             try:

@@ -1,10 +1,14 @@
-import argparse
 import gevent.monkey
+
+gevent.monkey.patch_all()
+
+import argparse
+
 import urllib3
 from logging import handlers
 from pathlib import Path
 
-gevent.monkey.patch_all()
+
 import logging
 from influxdb import InfluxDBClient
 
