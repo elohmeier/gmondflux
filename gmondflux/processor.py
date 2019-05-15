@@ -1,4 +1,5 @@
 import logging
+import socket
 from gevent import Greenlet
 from influxdb import InfluxDBClient
 
@@ -26,9 +27,14 @@ class MessageProcessor(Greenlet):
     def _lookup_cluster_name(self, sender_host):
 
         if sender_host not in self._cluster_map:
-            self._cluster_map[sender_host] = gmond_client.read_cluster_name(
-                sender_host, self._gmond_xml_port
-            )
+            log.debug("cluster unknown, trying to read from gmond XML api")
+            try:
+                self._cluster_map[sender_host] = gmond_client.read_cluster_name(
+                    sender_host, self._gmond_xml_port
+                )
+            except socket.timeout:
+                log.warning("cluster name lookup timed out")
+                self._cluster_map[sender_host] = None  # ignore in the future
 
         return self._cluster_map[sender_host]
 
@@ -43,14 +49,17 @@ class MessageProcessor(Greenlet):
             )
 
             if packet.is_metadata():  # ignore metadata packets
+                log.debug("skipping meta packet")
                 continue
 
             tags = {"host": packet.hostname}
 
             try:
+                log.debug("looking up cluster name...")
                 cluster_name = self._lookup_cluster_name(packet.sender_host)
-                tags["cluster"] = cluster_name
-                log.debug("looked up cluster name: %s", cluster_name)
+                if cluster_name:
+                    tags["cluster"] = cluster_name
+                    log.debug("looked up cluster name: %s", cluster_name)
             except Exception as e:
                 log.warning("failed to lookup cluster name: %s", e)
 

@@ -35,8 +35,9 @@ apply:
 docker:
 	docker build -t gmondflux --target pyinstaller .
 
-dockerdist:
+dockerdist: docker
 	mkdir -p dist
+	rm -f dist/gmondflux
 	docker run --rm --entrypoint cat gmondflux /work/dist/gmondflux > dist/gmondflux
 
 

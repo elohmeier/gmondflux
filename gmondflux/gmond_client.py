@@ -18,6 +18,7 @@ def read_cluster_name(host, port):
     parser.setContentHandler(handler)
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(1)  # wait max. 1 second
         s.connect((host, port))
         while True:
             buffer = s.recv(1024)
