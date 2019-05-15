@@ -1,0 +1,11 @@
+.git/
+dist/
+build/
+ifx/
+rrds/
+puppet/
+pdkenv/
+puppet_beispiel_dennis/
+venv
+.vscode/
+

@@ -8,8 +8,8 @@ black:
 flake8:
 	nix-shell -p python2Packages.flake8 --run "flake8 --ignore E501 src"
 
-upload: black
-	scp -r src/*.py nw32.nw:/var/www/nerdworks.de/prod/aix/
+upload:
+	scp -r dist/* nw32.nw:/var/www/nerdworks.de/prod/aix/
 
 pdkimg: pdkenv/Dockerfile.pdk
 	docker build -t pdkenv -f pdkenv/Dockerfile.pdk pdkenv
@@ -31,3 +31,12 @@ validate: pdkimg
 
 apply:
 	sudo /opt/puppetlabs/bin/puppet apply --modulepath puppet/ -e 'include gmond2influx' --test
+
+docker:
+	docker build -t gmondflux --target pyinstaller .
+
+dockerdist:
+	mkdir -p dist
+	docker run --rm --entrypoint cat gmondflux /work/dist/gmondflux > dist/gmondflux
+
+
