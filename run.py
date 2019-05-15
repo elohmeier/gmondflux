@@ -83,20 +83,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "-ll",
         "--log-level",
-        help="set log level (default: %s), valid options are: %s"
-        % (
-            default_log_level,
-            ", ".join(
-                str(i)
-                for i in [
-                    logging.DEBUG,
-                    logging.INFO,
-                    logging.WARNING,
-                    logging.ERROR,
-                    logging.CRITICAL,
-                ]
-            ),
-        ),
+        help="set log level (default: INFO), valid options are: DEBUG, INFO, WARNING, ERROR, CRITICAL. smaller means more verbose.",
     )
     parser.add_argument(
         "-ld",

@@ -12,7 +12,6 @@ class GMetricPacket:
         self.hostname = hostname
         self.packet_type = packet_type
         self.type_representation = None
-        self.metric_name = None
         self.units = None
         self.slope = None
         self.tmax = None
