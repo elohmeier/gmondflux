@@ -58,6 +58,12 @@ if __name__ == "__main__":
         action="store_true",
     )
     parser.add_argument(
+        "-isv",
+        "--influx-ssl-verify",
+        help="verify SSL certificate against CA when connecting to InfluxDB",
+        action="store_true",
+    )
+    parser.add_argument(
         "-id",
         "--influx-database",
         default="gmond",
@@ -117,6 +123,7 @@ if __name__ == "__main__":
         password=args.influx_password,
         database=args.influx_database,
         ssl=args.influx_ssl,
+        verify_ssl=args.influx_ssl_verify,
     )
 
     p = MessageProcessor(q, c, args.gmond_xml_port, args.diag)
