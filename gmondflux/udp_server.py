@@ -20,6 +20,8 @@ class GmondReceiver(DatagramServer):
     def handle(self, data, address):
         try:
             packet = gmetric_parse(data)
+            if packet.is_metadata():
+                return  # skip metadata packets as early as possible
             packet.set_sender(address)
             packet.set_timestamp()
             self.queue.put(packet)

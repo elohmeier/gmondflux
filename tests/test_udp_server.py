@@ -24,11 +24,8 @@ def test_receive_gmetric_message():
     ).wait(2)
     sleep(0.1)  # wait a bit for the msg transfer
     r.stop()
-    assert len(q) == 2
-    meta_packet = q.get()
-    assert meta_packet.packet_type == 128  # metadata
+    assert len(q) == 1
     value_packet = q.get()
     assert value_packet.packet_type == 133  # float
 
-    assert meta_packet.metric_name == "cpu_idle"
     assert value_packet.metric_name == "cpu_idle"

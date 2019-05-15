@@ -1,4 +1,5 @@
 import logging
+import re
 import socket
 from gevent import Greenlet
 from influxdb import InfluxDBClient
@@ -7,6 +8,16 @@ from gmondflux import gmond_client
 from gmondflux.udp_server import PacketQueue
 
 log = logging.getLogger(__name__)
+
+re_split = re.compile(r"^((ent|hdisk|fcs)\d+)_(.*)$")
+tag_name_map = {"ent": "interface", "hdisk": "disk", "fcs": "device"}
+
+
+def split_metric(metric_name: str) -> (dict, str):
+    m = re_split.match(metric_name)
+    if not m:
+        return {}, metric_name
+    return {tag_name_map[m.group(2)]: m.group(1)}, m.group(3)
 
 
 class MessageProcessor(Greenlet):
@@ -52,7 +63,8 @@ class MessageProcessor(Greenlet):
                 log.debug("skipping meta packet")
                 continue
 
-            tags = {"host": packet.hostname}
+            tags, field_name = split_metric(packet.metric_name)
+            tags["host"] = packet.hostname
 
             try:
                 log.debug("looking up cluster name...")
@@ -68,7 +80,7 @@ class MessageProcessor(Greenlet):
                     "measurement": "gmond",
                     "tags": tags,
                     # "time": "2009-11-10T23:00:00Z",
-                    "fields": {packet.metric_name: packet.value},
+                    "fields": {field_name: packet.value},
                 }
             ]
             try:
