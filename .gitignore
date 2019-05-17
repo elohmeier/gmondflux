@@ -8,4 +8,5 @@ ifx/
 build/
 dist/
 rrds/
+*.swp
 
