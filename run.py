@@ -2,7 +2,12 @@ import gevent.monkey
 
 gevent.monkey.patch_all()
 
+import gevent.pool
+
 import argparse
+
+import signal
+import sys
 
 import urllib3
 from logging import handlers
@@ -124,9 +129,6 @@ if __name__ == "__main__":
         )
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-    q = PacketQueue()
-    r = GmondReceiver(f"{args.listen_address}:{args.listen_port}", queue=q)
-
     c = InfluxDBClient(
         host=args.influx_host,
         port=args.influx_port,
@@ -137,15 +139,27 @@ if __name__ == "__main__":
         verify_ssl=args.influx_ssl_verify,
     )
 
-    p = MessageProcessor(q, c, args.gmond_xml_port, args.diag)
-    p.start()
+    pool = gevent.pool.Pool()
 
-    try:
-        log.info(
-            "listening for gmond udp traffic on %s:%s...",
-            args.listen_address,
-            args.listen_port,
-        )
-        r.serve_forever()
-    except KeyboardInterrupt:
+    q = PacketQueue()
+
+    r = GmondReceiver(f"{args.listen_address}:{args.listen_port}", queue=q, spawn=pool)
+    p = MessageProcessor(q, c, args.gmond_xml_port, args.diag)
+
+    pool.add(gevent.spawn(p.run))
+
+    r.start()
+    log.info(
+        "listening for gmond udp traffic on %s:%s...",
+        args.listen_address,
+        args.listen_port,
+    )
+
+    def handler():
         log.info("shutting down...")
+        pool.kill()
+        sys.exit(0)
+
+    gevent.signal(signal.SIGINT, handler)
+
+    pool.join()
