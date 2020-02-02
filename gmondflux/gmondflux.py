@@ -123,7 +123,11 @@ def configure_sockets(udp_listen_address, udp_listen_port, telegraf_socket_path)
         telegraf_client.connect(telegraf_socket_path)
         logger.info("bound to telegraf socket: %s", telegraf_socket_path)
     except FileNotFoundError:
-        raise Exception('Telegraf socket "%s" not found.' % telegraf_socket_path)
+        logger.critical(
+            'Telegraf socket "%s" does not exist, exiting.' % telegraf_socket_path
+        )
+        udp_server.close()
+        sys.exit(1)
 
 
 def telegraf_send(packet):
@@ -154,6 +158,9 @@ def process_events():
             try:
                 telegraf_send(packet)
                 logger.debug("packet forwarded to telegraf.")
+            except BrokenPipeError:
+                logger.critical("Telegraf socket has been closed, exiting.")
+                sys.exit(1)
             except Exception:
                 logger.exception("failed to forward packet to telegraf.")
 
@@ -202,5 +209,6 @@ if __name__ == "__main__":
         process_events()
     except KeyboardInterrupt:
         logger.info("shutting down...")
+    finally:
         udp_server.close()
         telegraf_client.close()
