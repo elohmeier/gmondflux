@@ -1,12 +1,9 @@
 .idea/
 *.pyc
 venv
-puppet_beispiel_dennis/
 .ipynb_checkpoints/
-.bash_history
 ifx/
 build/
 dist/
 rrds/
 *.swp
-
