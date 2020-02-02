@@ -6,6 +6,8 @@ rec {
   };
   pyPkgs = pythonPackages: with pythonPackages; [
     black
+    flake8
+    pytest
   ];
   env = py3.withPackages (
     pyPkgs
