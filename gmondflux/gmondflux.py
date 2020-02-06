@@ -4,13 +4,21 @@ import argparse
 import logging
 import socket
 import sys
+import time
 
 from xdrlib import Unpacker
 
 logger = logging.getLogger("gmondflux")
 
 udp_server = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-telegraf_client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+telegraf_client = None
+telegraf_socket_path = None
+
+# in seconds. used to buffer the "socket does not exist" messages
+COMPLAINT_FREQUENCY = 60
+
+# allow early "socket does not exist" messages
+last_socket_complaint = time.time() - COMPLAINT_FREQUENCY
 
 
 def _iql_escape_tag(tag):
@@ -114,26 +122,46 @@ class GmondPacket:
         )
 
 
-def configure_sockets(udp_listen_address, udp_listen_port, telegraf_socket_path):
+def configure_listener(udp_listen_address, udp_listen_port):
     udp_server.bind((udp_listen_address, udp_listen_port))
     logger.info(
         "listening for UDP traffic on %s:%s", udp_listen_address, udp_listen_port
     )
-    try:
-        telegraf_client.connect(telegraf_socket_path)
-        logger.info("bound to telegraf socket: %s", telegraf_socket_path)
-    except FileNotFoundError:
-        logger.critical(
-            'Telegraf socket "%s" does not exist, exiting.' % telegraf_socket_path
-        )
-        udp_server.close()
-        sys.exit(1)
 
 
 def telegraf_send(packet):
+    global telegraf_client, last_socket_complaint
     iql = packet.iql()
     logger.debug("generated IQL: %s", iql)
-    telegraf_client.send(iql.encode())
+
+    if telegraf_client is None:
+        logger.debug("trying to connect to telegraf socket")
+        try:
+            telegraf_client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            telegraf_client.connect(telegraf_socket_path)
+            logger.info("bound to telegraf socket: %s", telegraf_socket_path)
+        except FileNotFoundError:
+            if last_socket_complaint < (time.time() - COMPLAINT_FREQUENCY):
+                logger.warning(
+                    'Telegraf socket "%s" does not exist.' % telegraf_socket_path
+                )
+                last_socket_complaint = time.time()
+            telegraf_client.close()
+            telegraf_client = None
+
+    if telegraf_client is not None:
+        try:
+            telegraf_client.send(iql.encode())
+            logger.debug("packet forwarded to telegraf.")
+            return
+        except BrokenPipeError:
+            logger.warning("Telegraf socket has been closed.")
+            telegraf_client.close()
+            telegraf_client = None
+        except Exception:
+            logger.exception("failed to forward packet to telegraf.")
+
+    logger.debug("packet dropped.")
 
 
 def recv_packet():
@@ -155,14 +183,7 @@ def process_events():
             continue
 
         if not packet.is_metadata_packet:
-            try:
-                telegraf_send(packet)
-                logger.debug("packet forwarded to telegraf.")
-            except BrokenPipeError:
-                logger.critical("Telegraf socket has been closed, exiting.")
-                sys.exit(1)
-            except Exception:
-                logger.exception("failed to forward packet to telegraf.")
+            telegraf_send(packet)
 
 
 if __name__ == "__main__":
@@ -195,15 +216,18 @@ if __name__ == "__main__":
         "--verbose",
         action="count",
         default=1,
-        help="increase log output verbosity level. E.g. -vvv for DEBUG.",
+        help="increase log output verbosity level. E.g. -v for DEBUG.",
     )
 
     args = parser.parse_args()
 
-    args.verbose = 50 - (10 * args.verbose) if args.verbose > 0 else 0
+    args.verbose = (
+        30 - (10 * args.verbose) if args.verbose > 0 else 0
+    )  # default level: INFO
     logging.basicConfig(stream=sys.stderr, level=args.verbose)
 
-    configure_sockets(args.listen_address, args.listen_port, args.telegraf_socket)
+    configure_listener(args.listen_address, args.listen_port)
+    telegraf_socket_path = args.telegraf_socket
 
     try:
         process_events()
@@ -211,4 +235,5 @@ if __name__ == "__main__":
         logger.info("shutting down...")
     finally:
         udp_server.close()
-        telegraf_client.close()
+        if telegraf_client is not None:
+            telegraf_client.close()
