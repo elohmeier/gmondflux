@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 
 import argparse
+import json
 import logging
+import re
 import socket
 import sys
 import time
@@ -13,6 +15,8 @@ logger = logging.getLogger("gmondflux")
 udp_server = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 telegraf_client = None
 telegraf_socket_path = None
+
+metric_name_tags = {}
 
 # in seconds. used to buffer the "socket does not exist" messages
 COMPLAINT_FREQUENCY = 60
@@ -109,9 +113,26 @@ class GmondPacket:
         if self.is_metadata_packet:
             raise NotImplementedError("Metadata packets cannot be converted to IQL.")
 
-        return "gmond,host={} {}={}\n".format(
-            _iql_escape_tag_value(self.hostname), self.metric_name, self.value_iql
+        field_name = self.metric_name
+        tags = {"host": self.hostname}
+
+        # extract tags from metric name as configured
+        for rexp, repl in metric_name_tags.items():
+            m = rexp.match(self.metric_name)
+            if not m:
+                continue
+
+            tags.update(m.groupdict())
+
+            # rewrite the field name as configured
+            field_name = rexp.sub(repl, self.metric_name)
+            break
+
+        iql_tags = ",".join(
+            ["{}={}".format(k, _iql_escape_tag_value(v)) for k, v in tags.items()]
         )
+
+        return "gmond,{} {}={}\n".format(iql_tags, field_name, self.value_iql)
 
     def __repr__(self):
         return "GmondPacket(%s, %s, %s, %s)" % (
@@ -212,6 +233,12 @@ if __name__ == "__main__":
         help="Telegraf socket to send metrics to, default is /tmp/telegraf.sock.",
     )
     parser.add_argument(
+        "-c",
+        "--config",
+        type=argparse.FileType("r"),
+        help="gmondflux.json config file.",
+    )
+    parser.add_argument(
         "-v",
         "--verbose",
         action="count",
@@ -228,6 +255,15 @@ if __name__ == "__main__":
 
     configure_listener(args.listen_address, args.listen_port)
     telegraf_socket_path = args.telegraf_socket
+
+    if args.config:
+        try:
+            cfg = json.load(args.config)
+            for key, value in cfg.items():
+                metric_name_tags[re.compile(key)] = value
+            logger.debug("configuration loaded")
+        except:
+            logger.exception("failed to load configuration")
 
     try:
         process_events()
