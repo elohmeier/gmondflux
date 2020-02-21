@@ -1,0 +1,22 @@
+[Unit]
+Description=Gmondflux gmond UDP packet receiver
+Documentation=https://git.nerdworks.de/nerdworks/gmondflux
+Requires=network.target
+After=network.target network-online.target
+
+[Service]
+User=telegraf
+ExecStart=/usr/bin/gmondflux.py --config /etc/gmondflux.json
+AmbientCapabilities=cap_net_bind_service
+CapabilitiesBoundingSet=cap_net_bind_service
+NoNewPrivileges=true
+LimitNPROC=64
+LimitNOFILE=64
+PrivateTmp=true
+PrivateDevices=true
+ProtectHome=true
+ProtectSystem=full
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
