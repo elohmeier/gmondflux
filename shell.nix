@@ -1,5 +1,4 @@
-{ pkgs ? import <nixpkgs> {} }:
-
+{ pkgs ? import <nixpkgs> { } }:
 let
   scripts = [
     (
@@ -10,8 +9,8 @@ let
     )
     (pkgs.writeShellScriptBin "mk-venv" "nix-build -o venv -A env pyenv.nix")
   ];
-  ganglia = pkgs.callPackage ./deps/ganglia.nix {};
-  pyenv = pkgs.callPackage ./pyenv.nix {};
+  ganglia = pkgs.callPackage ./deps/ganglia.nix { };
+  pyenv = pkgs.callPackage ./pyenv.nix { };
 in
 pkgs.mkShell {
   buildInputs = [

@@ -1,8 +1,8 @@
-{ pkgs ? import <nixpkgs> {} }:
+{ pkgs ? import <nixpkgs> { } }:
 
 rec {
   py3 = pkgs.python3.override {
-    packageOverrides = self: super: {};
+    packageOverrides = self: super: { };
   };
   pyPkgs = pythonPackages: with pythonPackages; [
     black

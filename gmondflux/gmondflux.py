@@ -46,7 +46,7 @@ _slope_int2str = {0: "zero", 1: "positive", 2: "negative", 3: "both", 4: "unspec
 
 
 class GmondPacket:
-    def __init__(self, raw_data):
+    def __init__(self, raw_data, convert_numeric=False):
         unpacker = Unpacker(raw_data)
         self.packet_type = unpacker.unpack_int()
 
@@ -88,11 +88,20 @@ class GmondPacket:
             self.value_iql = str(self.value) + "i"
         if self.packet_type == 133:
             self.value = unpacker.unpack_string().decode()
-            self.value_iql = '"{}"'.format(
-                self.value.replace("\\", "\\\\")
-                .replace('"', '\\"')
-                .replace("\n", "\\n")
-            )
+            converted = False
+            if convert_numeric:
+                try:
+                    float(self.value)
+                    self.value_iql = repr(self.value)
+                    converted = True
+                except ValueError:
+                    pass
+            if not converted:
+                self.value_iql = '"{}"'.format(
+                    self.value.replace("\\", "\\\\")
+                    .replace('"', '\\"')
+                    .replace("\n", "\\n")
+                )
         if self.packet_type == 134:
             self.value = unpacker.unpack_float()
             self.value_iql = repr(self.value)
@@ -185,18 +194,18 @@ def telegraf_send(packet):
     logger.debug("packet dropped.")
 
 
-def recv_packet():
+def recv_packet(convert_numeric):
     data, address = udp_server.recvfrom(4096)  # maximum packet size was guessed
     logger.debug("packet received.")
-    packet = GmondPacket(data)
+    packet = GmondPacket(data, convert_numeric)
     logger.debug("parsed packet: %s", packet)
     return packet
 
 
-def process_events():
+def process_events(convert_numeric):
     while True:
         try:
-            packet = recv_packet()
+            packet = recv_packet(convert_numeric)
         except Exception:
             logger.warning(
                 "failed to receive/parse packet, skipping it.", exc_info=True
@@ -245,6 +254,12 @@ if __name__ == "__main__":
         default=1,
         help="increase log output verbosity level. E.g. -v for DEBUG.",
     )
+    parser.add_argument(
+        "-cn",
+        "--convert-numeric",
+        help="automatically convert numeric strings received to float",
+        action="store_true",
+    )
 
     args = parser.parse_args()
 
@@ -266,7 +281,7 @@ if __name__ == "__main__":
             logger.exception("failed to load configuration")
 
     try:
-        process_events()
+        process_events(args.convert_numeric)
     except KeyboardInterrupt:
         logger.info("shutting down...")
     finally:
