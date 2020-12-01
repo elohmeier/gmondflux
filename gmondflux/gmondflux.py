@@ -12,7 +12,6 @@ from xdrlib import Unpacker
 
 logger = logging.getLogger("gmondflux")
 
-udp_server = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 telegraf_client = None
 telegraf_socket_path = None
 
@@ -152,7 +151,7 @@ class GmondPacket:
         )
 
 
-def configure_listener(udp_listen_address, udp_listen_port):
+def configure_listener(udp_server, udp_listen_address, udp_listen_port):
     udp_server.bind((udp_listen_address, udp_listen_port))
     logger.info(
         "listening for UDP traffic on %s:%s", udp_listen_address, udp_listen_port
@@ -194,7 +193,7 @@ def telegraf_send(packet):
     logger.debug("packet dropped.")
 
 
-def recv_packet(convert_numeric):
+def recv_packet(udp_server, convert_numeric=False):
     data, address = udp_server.recvfrom(4096)  # maximum packet size was guessed
     logger.debug("packet received.")
     packet = GmondPacket(data, convert_numeric)
@@ -202,10 +201,10 @@ def recv_packet(convert_numeric):
     return packet
 
 
-def process_events(convert_numeric):
+def process_events(udp_server, convert_numeric=False):
     while True:
         try:
-            packet = recv_packet(convert_numeric)
+            packet = recv_packet(udp_server, convert_numeric)
         except Exception:
             logger.warning(
                 "failed to receive/parse packet, skipping it.", exc_info=True
@@ -268,7 +267,8 @@ if __name__ == "__main__":
     )  # default level: INFO
     logging.basicConfig(stream=sys.stderr, level=args.verbose)
 
-    configure_listener(args.listen_address, args.listen_port)
+    udp_server = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    configure_listener(udp_server, args.listen_address, args.listen_port)
     telegraf_socket_path = args.telegraf_socket
 
     if args.config:
@@ -281,7 +281,7 @@ if __name__ == "__main__":
             logger.exception("failed to load configuration")
 
     try:
-        process_events(args.convert_numeric)
+        process_events(udp_server, args.convert_numeric)
     except KeyboardInterrupt:
         logger.info("shutting down...")
     finally:

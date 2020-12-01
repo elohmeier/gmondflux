@@ -1,36 +1,59 @@
+import socket
 import subprocess
 
-from gmondflux.gmondflux import udp_server, recv_packet
+from gmondflux.gmondflux import recv_packet
 
 # to run this tests, make sure gmetric is in your PATH
 
 
-def test_string():
-    # set timeout to let the test fail if gmetric sends no packets.
-    udp_server.settimeout(1)
+def gmetric_iql(
+    metric_name: str, value_type: str, value: str, convert_numeric: bool = False
+):
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp_server:
+        # set timeout to let the test fail if gmetric sends no packets.
+        udp_server.settimeout(1)
 
-    udp_server.bind(("127.0.0.1", 8679))
-    subprocess.call(
-        [
-            "gmetric",
-            "-c",
-            "configs/gmetric.conf",
-            "-n",
-            "my_metric",
-            "-t",
-            "string",
-            "-v",
-            "abcxyzöäü",
-        ]
+        udp_server.bind(("127.0.0.1", 8679))
+        subprocess.call(
+            [
+                "gmetric",
+                "-c",
+                "configs/gmetric.conf",
+                "-n",
+                metric_name,
+                "-t",
+                value_type,
+                "-v",
+                value,
+            ]
+        )
+
+        metadata_packet = recv_packet(udp_server, convert_numeric)
+        assert metadata_packet.is_metadata_packet
+
+        value_packet = recv_packet(udp_server, convert_numeric)
+        assert not value_packet.is_metadata_packet
+
+        udp_server.close()
+
+        iql = value_packet.iql()
+        return iql
+
+
+def test_string():
+    assert (
+        gmetric_iql("my_metric", "string", "abcxyzöäü")
+        == 'gmond,host=mywebserver.domain.com my_metric="abcxyzöäü"\n'
     )
 
-    metadata_packet = recv_packet()
-    assert metadata_packet.is_metadata_packet
 
-    value_packet = recv_packet()
-    assert not value_packet.is_metadata_packet
+def test_string_conversion():
+    assert (
+        gmetric_iql("my_metric", "string", "0", convert_numeric=False)
+        == 'gmond,host=mywebserver.domain.com my_metric="0"\n'
+    )
 
-    udp_server.close()
-
-    iql = value_packet.iql()
-    assert iql == 'gmond,host=mywebserver.domain.com my_metric="abcxyzöäü"\n'
+    assert (
+        gmetric_iql("my_metric", "string", "0", convert_numeric=True)
+        == "gmond,host=mywebserver.domain.com my_metric=0\n"
+    )
