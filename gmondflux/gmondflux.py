@@ -8,6 +8,7 @@ import socket
 import sys
 import time
 
+from collections import OrderedDict
 from xdrlib import Unpacker
 
 logger = logging.getLogger("gmondflux")
@@ -19,6 +20,9 @@ metric_name_tags = {}
 
 # in seconds. used to buffer the "socket does not exist" messages
 COMPLAINT_FREQUENCY = 60
+
+# key-value count of metric-name/type-representation pairs to cache in memory
+MAX_TYPE_CACHE_LENGTH = 1000
 
 # allow early "socket does not exist" messages
 last_socket_complaint = time.time() - COMPLAINT_FREQUENCY
@@ -45,7 +49,7 @@ _slope_int2str = {0: "zero", 1: "positive", 2: "negative", 3: "both", 4: "unspec
 
 
 class GmondPacket:
-    def __init__(self, raw_data, convert_numeric=False):
+    def __init__(self, raw_data, metric_type_cache={}):
         unpacker = Unpacker(raw_data)
         self.packet_type = unpacker.unpack_int()
 
@@ -88,13 +92,28 @@ class GmondPacket:
         if self.packet_type == 133:
             self.value = unpacker.unpack_string().decode()
             converted = False
-            if convert_numeric:
-                try:
-                    float(self.value)
-                    self.value_iql = repr(self.value)
+
+            if self.metric_name in metric_type_cache:
+                metric_type = metric_type_cache[self.metric_name]
+                logger.debug(
+                    "picket up known type %s for metric %s",
+                    metric_type,
+                    self.metric_name,
+                )
+                if metric_type in ["float", "double"]:
+                    self.value_iql = self.value
                     converted = True
-                except ValueError:
-                    pass
+                elif metric_type in [
+                    "int8",
+                    "uint8",
+                    "int16",
+                    "uint16",
+                    "int32",
+                    "uint32",
+                ]:
+                    self.value_iql = self.value + "i"
+                    converted = True
+
             if not converted:
                 self.value_iql = '"{}"'.format(
                     self.value.replace("\\", "\\\\")
@@ -103,10 +122,10 @@ class GmondPacket:
                 )
         if self.packet_type == 134:
             self.value = unpacker.unpack_float()
-            self.value_iql = repr(self.value)
+            self.value_iql = self.value
         if self.packet_type == 135:
             self.value = unpacker.unpack_double()
-            self.value_iql = repr(self.value)
+            self.value_iql = self.value
 
         if not self.is_metadata_packet:
             logger.debug('converted "%s" to "%s" (IQL)', self.value, self.value_iql)
@@ -193,18 +212,28 @@ def telegraf_send(packet):
     logger.debug("packet dropped.")
 
 
-def recv_packet(udp_server, convert_numeric=False):
+def recv_packet(udp_server, metric_type_cache):
     data, address = udp_server.recvfrom(4096)  # maximum packet size was guessed
     logger.debug("packet received.")
-    packet = GmondPacket(data, convert_numeric)
+    packet = GmondPacket(data, metric_type_cache)
     logger.debug("parsed packet: %s", packet)
+    if packet.is_metadata_packet:
+        remember_type_representation(
+            metric_type_cache, packet.metric_name, packet.type_representation
+        )
     return packet
 
 
-def process_events(udp_server, convert_numeric=False):
+def remember_type_representation(metric_type_cache, metric_name, type_representation):
+    metric_type_cache[metric_name] = type_representation
+    if len(metric_type_cache) > MAX_TYPE_CACHE_LENGTH:
+        metric_type_cache.popitem(last=False)  # FIFO
+
+
+def process_events(udp_server, metric_type_cache):
     while True:
         try:
-            packet = recv_packet(udp_server, convert_numeric)
+            packet = recv_packet(udp_server, metric_type_cache)
         except Exception:
             logger.warning(
                 "failed to receive/parse packet, skipping it.", exc_info=True
@@ -253,12 +282,6 @@ if __name__ == "__main__":
         default=1,
         help="increase log output verbosity level. E.g. -v for DEBUG.",
     )
-    parser.add_argument(
-        "-cn",
-        "--convert-numeric",
-        help="automatically convert numeric strings received to float",
-        action="store_true",
-    )
 
     args = parser.parse_args()
 
@@ -270,6 +293,7 @@ if __name__ == "__main__":
     udp_server = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     configure_listener(udp_server, args.listen_address, args.listen_port)
     telegraf_socket_path = args.telegraf_socket
+    metric_type_cache = OrderedDict()
 
     if args.config:
         try:
@@ -281,7 +305,7 @@ if __name__ == "__main__":
             logger.exception("failed to load configuration")
 
     try:
-        process_events(udp_server, args.convert_numeric)
+        process_events(udp_server, metric_type_cache)
     except KeyboardInterrupt:
         logger.info("shutting down...")
     finally:
